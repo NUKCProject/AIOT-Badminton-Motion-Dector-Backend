@@ -23,9 +23,15 @@ class VerifyRequest(BaseModel):
 class RawDataRequest(BaseModel):
     waveform: List[IMUPoint]
     action: Optional[str] = None
+    device_id: Optional[str] = None
 
 class ReferenceInsertRequest(BaseModel):
     action: str
+    waveform: List[IMUPoint]
+
+class TrainingDataRequest(BaseModel):
+    action: str
+    device_id: str
     waveform: List[IMUPoint]
 
 @app.post("/training-label/verify")
@@ -49,7 +55,7 @@ def verify_and_store(req: VerifyRequest):
     THRESHOLD = 2.5
 
     if min_score < THRESHOLD and min_score < avg_score * 1.1:
-        save_training_data(req.action_type, input_wave)
+        save_training_data(req.action_type, input_wave, None)
         return {
             "status": "accepted",
             "dtw_min_score": min_score,
@@ -66,7 +72,7 @@ def verify_and_store(req: VerifyRequest):
 
 @app.post("/record-raw-data")
 def record_raw(req: RawDataRequest):
-    save_raw_data([p.dict() for p in req.waveform], req.action)
+    save_raw_data([p.dict() for p in req.waveform], req.action, req.device_id)
     return {"status": "ok"}
 
 @app.post("/insert-reference")
@@ -74,3 +80,7 @@ def insert_reference(req: ReferenceInsertRequest):
     save_reference_waveform(req.action, [p.dict() for p in req.waveform])
     return {"status": "reference saved"}
 
+@app.post("/record-training-data")
+def record_training(req: TrainingDataRequest):
+    save_training_data(req.action, [p.dict() for p in req.waveform], req.device_id)
+    return {"status": "training data saved"}

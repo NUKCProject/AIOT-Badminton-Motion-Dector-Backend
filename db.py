@@ -20,18 +20,23 @@ def save_reference_waveform(action, waveform):
         "created_at": datetime.utcnow()
     })
 
-def save_training_data(action, waveform):
-    training_collection.insert_one({
+def save_training_data(action, waveform, device_id=None):
+    doc = {
         "action": action,
         "waveform": waveform,
         "created_at": datetime.utcnow()
-    })
+    }
+    if device_id:
+        doc["device_id"] = device_id
+    training_collection.insert_one(doc)
 
-def save_raw_data(waveform, action=None):
+def save_raw_data(waveform, action=None, device_id=None):
     doc = {
         "collected_at": datetime.utcnow(),
         "waveform": waveform
     }
     if action:
         doc["action"] = action
+    if device_id:
+        doc["device_id"] = device_id
     raw_collection.insert_one(doc)
