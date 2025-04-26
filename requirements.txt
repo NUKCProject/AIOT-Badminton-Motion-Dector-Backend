@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+pydantic
+pymongo>=4.7
+numpy
