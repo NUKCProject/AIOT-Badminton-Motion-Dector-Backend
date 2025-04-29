@@ -2,6 +2,7 @@ from fastapi import FastAPI, Query
 from pydantic import BaseModel
 from typing import List, Optional
 from dtw_utils import dtw_distance, compute_acc_magnitude
+from fastapi.middleware.cors import CORSMiddleware
 from db import (
     save_reference_raw_waveforms,
     save_training_raw_waveforms,
@@ -13,7 +14,20 @@ from db import (
 from datetime import datetime
 
 app = FastAPI()
+# --- CORS設定開始 ---
+origins = [
+    "http://localhost:5173",  # 允許vite dev server
+    "https://badminton-457613.de.r.appspot.com"  # 允許部署後的前端
+]
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,            # 允許誰可以跨域
+    allow_credentials=True,
+    allow_methods=["*"],              # 允許所有method (GET, POST, PUT, DELETE...)
+    allow_headers=["*"],              # 允許所有header
+)
+# --- CORS設定結束 --
 class IMUPoint(BaseModel):
     ts: int
     ax: float
