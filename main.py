@@ -1,8 +1,15 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from pydantic import BaseModel
 from typing import List, Optional
 from dtw_utils import dtw_distance, compute_acc_magnitude
-from db import get_reference_waveforms, save_training_data, save_raw_data, save_reference_waveform
+from db import (
+    save_reference_raw_waveforms,
+    save_training_raw_waveforms,
+    save_reference_waveform,
+    save_training_waveform,
+    get_reference_raw_waveforms,
+    get_training_raw_waveforms
+)
 from datetime import datetime
 
 app = FastAPI()
@@ -15,10 +22,8 @@ class IMUPoint(BaseModel):
     gx: float
     gy: float
     gz: float
-
-class VerifyRequest(BaseModel):
-    action_type: str
-    waveform: List[IMUPoint]
+    mic_level: int
+    mic_peak: int
 
 class RawDataRequest(BaseModel):
     waveform: List[IMUPoint]
@@ -29,58 +34,56 @@ class ReferenceInsertRequest(BaseModel):
     action: str
     waveform: List[IMUPoint]
 
-class TrainingDataRequest(BaseModel):
-    action: str
-    device_id: str
-    waveform: List[IMUPoint]
-
-@app.post("/training-label/verify")
-def verify_and_store(req: VerifyRequest):
-    input_wave = [p.dict() for p in req.waveform]
-    input_magnitude = compute_acc_magnitude(input_wave)
-
-    ref_waveforms = get_reference_waveforms(req.action_type)
-    if not ref_waveforms:
-        return {"error": "No reference waveforms found for this action"}
-
-    scores = []
-    for ref in ref_waveforms:
-        ref_mag = compute_acc_magnitude(ref["waveform"])
-        score = dtw_distance(input_magnitude, ref_mag)
-        scores.append(score)
-
-    min_score = min(scores)
-    avg_score = sum(scores) / len(scores)
-
-    THRESHOLD = 2.5
-
-    if min_score < THRESHOLD and min_score < avg_score * 1.1:
-        save_training_data(req.action_type, input_wave, None)
-        return {
-            "status": "accepted",
-            "dtw_min_score": min_score,
-            "dtw_avg_score": avg_score,
-            "saved": True
-        }
-    else:
-        return {
-            "status": "rejected",
-            "dtw_min_score": min_score,
-            "dtw_avg_score": avg_score,
-            "saved": False
-        }
-
-@app.post("/record-raw-data")
-def record_raw(req: RawDataRequest):
-    save_raw_data([p.dict() for p in req.waveform], req.action, req.device_id)
+# 將 raw 資料存入 reference_raw_waveforms
+@app.post("/record-reference-raw-waveforms")
+def record_reference_raw(req: RawDataRequest):
+    save_reference_raw_waveforms([p.dict() for p in req.waveform], req.action, req.device_id)
     return {"status": "ok"}
 
+# 將 raw 資料存入 training_raw_waveforms
+@app.post("/record-training-raw-waveforms")
+def record_training_raw(req: RawDataRequest):
+    save_training_raw_waveforms([p.dict() for p in req.waveform], req.action, req.device_id)
+    return {"status": "ok"}
+
+# 插入人工挑選的 reference 小段
 @app.post("/insert-reference")
 def insert_reference(req: ReferenceInsertRequest):
     save_reference_waveform(req.action, [p.dict() for p in req.waveform])
     return {"status": "reference saved"}
 
-@app.post("/record-training-data")
-def record_training(req: TrainingDataRequest):
-    save_training_data(req.action, [p.dict() for p in req.waveform], req.device_id)
-    return {"status": "training data saved"}
+# 抽出 reference raw 資料，切成小段 (for人工挑選)
+@app.get("/extract-reference")
+def extract_reference(
+    action_type: str = Query(..., description="指定動作類別，例如 smash、drive"),
+    device_id: str = Query(..., description="指定裝置ID，例如 test-device")
+):
+    raw_data_list = get_reference_raw_waveforms(action_type, device_id)
+
+    if not raw_data_list:
+        return {"error": f"No raw data found for action_type={action_type} and device_id={device_id}"}
+
+    # 平鋪展開所有資料
+    all_waveform = []
+    for raw in raw_data_list:
+        all_waveform.extend(raw["waveform"])
+
+    all_waveform = sorted(all_waveform, key=lambda x: x["ts"])
+
+    window_size = 60
+    stride = 20
+    windows = []
+    idx = 0
+    while idx + window_size <= len(all_waveform):
+        window = all_waveform[idx:idx+window_size]
+        windows.append({
+            "index": len(windows),
+            "waveform": window
+        })
+        idx += stride
+
+    return {
+        "action_type": action_type,
+        "device_id": device_id,
+        "windows": windows
+    }
