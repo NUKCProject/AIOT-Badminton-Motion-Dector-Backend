@@ -1,4 +1,5 @@
 fastapi
+fastdtw
 uvicorn
 pydantic
 pymongo>=4.7
