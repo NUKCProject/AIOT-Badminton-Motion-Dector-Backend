@@ -8,6 +8,9 @@ from db import (
     save_training_raw_waveforms,
     save_reference_waveform,
     get_reference_raw_waveforms,
+    record_labeled_window,
+    remove_raw_and_labeled_if_complete,
+    get_filtered_reference_waveforms,
 )
 from datetime import datetime
 
@@ -49,6 +52,9 @@ class RawDataRequest(BaseModel):
 class ReferenceInsertRequest(BaseModel):
     action: str
     waveform: List[IMUPoint]
+    window_index: int
+    raw_id: str
+    speed: Optional[str] = None
 
 
 # 設定根路由
@@ -78,7 +84,12 @@ def record_training_raw(req: RawDataRequest):
 # 插入人工挑選的 reference 小段
 @app.post("/insert-reference")
 def insert_reference(req: ReferenceInsertRequest):
-    save_reference_waveform(req.action, [p.dict() for p in req.waveform])
+    waveform_dicts = [p.dict() for p in req.waveform]
+    print("waveform_dicts", waveform_dicts)
+    print("req", req)
+    save_reference_waveform(req.action, waveform_dicts, speed=req.speed)
+    record_labeled_window(req.raw_id, req.window_index)
+    # remove_raw_and_labeled_if_complete(req.raw_id)
     return {"status": "reference saved"}
 
 
@@ -95,20 +106,29 @@ def extract_reference(
             "error": f"No raw data found for action_type={action_type} and device_id={device_id}"
         }
 
-    # 平鋪展開所有資料
-    all_waveform = []
+    window_size = 20
+    stride = 5
+    all_windows = []
+
     for raw in raw_data_list:
-        all_waveform.extend(raw["waveform"])
+        waveform = raw["waveform"]
+        raw_id = str(raw["_id"])
+        idx = 0
+        while idx + window_size <= len(waveform):
+            window = waveform[idx : idx + window_size]
+            all_windows.append(
+                {"index": len(all_windows), "waveform": window, "raw_id": raw_id}
+            )
+            idx += stride
 
-    all_waveform = sorted(all_waveform, key=lambda x: x["ts"])
+    return {"action_type": action_type, "device_id": device_id, "windows": all_windows}
 
-    window_size = 25
-    stride = 10
-    windows = []
-    idx = 0
-    while idx + window_size <= len(all_waveform):
-        window = all_waveform[idx : idx + window_size]
-        windows.append({"index": len(windows), "waveform": window})
-        idx += stride
 
-    return {"action_type": action_type, "device_id": device_id, "windows": windows}
+@app.get("/reference-waveforms")
+def get_reference_waveforms(
+    action_type: str = Query(..., description="動作類別"),
+):
+    results = get_filtered_reference_waveforms(action_type)
+    for r in results:
+        r["_id"] = str(r["_id"])  # 轉為字串
+    return results
