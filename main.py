@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Query
 from pydantic import BaseModel
 from typing import List, Optional
-from dtw_utils import dtw_distance, compute_acc_magnitude
+from dtw_utils import dtw_abs_six_axis_mean, dtw_raw_six_axis_mean
 from fastapi.middleware.cors import CORSMiddleware
 from db import (
     save_reference_raw_waveforms,
@@ -9,8 +9,10 @@ from db import (
     save_reference_waveform,
     get_reference_raw_waveforms,
     record_labeled_window,
-    remove_raw_and_labeled_if_complete,
+    get_filtered_training_waveforms,
     get_filtered_reference_waveforms,
+    get_training_raw_waveforms,
+    save_training_waveform,
 )
 from datetime import datetime
 
@@ -96,14 +98,14 @@ def insert_reference(req: ReferenceInsertRequest):
 # 抽出 reference raw 資料，切成小段 (for人工挑選)
 @app.get("/extract-reference")
 def extract_reference(
-    action_type: str = Query(..., description="指定動作類別，例如 smash、drive"),
+    action: str = Query(..., description="指定動作類別，例如 smash、drive"),
     device_id: str = Query(..., description="指定裝置ID，例如 test-device"),
 ):
-    raw_data_list = get_reference_raw_waveforms(action_type, device_id)
+    raw_data_list = get_reference_raw_waveforms(action, device_id)
 
     if not raw_data_list:
         return {
-            "error": f"No raw data found for action_type={action_type} and device_id={device_id}"
+            "error": f"No raw data found for action={action} and device_id={device_id}"
         }
 
     window_size = 20
@@ -121,14 +123,140 @@ def extract_reference(
             )
             idx += stride
 
-    return {"action_type": action_type, "device_id": device_id, "windows": all_windows}
+    return {"action": action, "device_id": device_id, "windows": all_windows}
 
 
+# 撈 reference waveforms
 @app.get("/reference-waveforms")
 def get_reference_waveforms(
-    action_type: str = Query(..., description="動作類別"),
+    action: str = Query(..., description="動作類別"),
 ):
-    results = get_filtered_reference_waveforms(action_type)
+    results = get_filtered_reference_waveforms(action)
     for r in results:
         r["_id"] = str(r["_id"])  # 轉為字串
     return results
+
+# 撈 training waveforms
+@app.get("/training-waveforms")
+def get_training_waveforms(
+    action: str = Query(..., description="動作類別"),
+):
+    results = get_filtered_training_waveforms(action)
+    for r in results:
+        r["_id"] = str(r["_id"])  # 轉為字串
+    return results
+
+# 撈 training raw waveforms
+@app.get("/extract-training")
+def extract_training(
+    action: str = Query(..., description="動作類別"),
+    device_id: str = Query(..., description="裝置ID"),
+):
+    raw_data_list = get_training_raw_waveforms(action, device_id)
+
+    if not raw_data_list:
+        return {
+            "error": f"No raw data found for action={action} and device_id={device_id}"
+        }
+
+    window_size = 20
+    stride = 5
+    all_windows = []
+
+    for raw in raw_data_list:
+        waveform = raw["waveform"]
+        raw_id = str(raw["_id"])
+        idx = 0
+        while idx + window_size <= len(waveform):
+            window = waveform[idx : idx + window_size]
+            all_windows.append(
+                {"index": len(all_windows), "waveform": window, "raw_id": raw_id}
+            )
+            idx += stride
+
+    return {"action": action, "device_id": device_id, "windows": all_windows}
+
+
+# 自動標記訓練資料
+
+
+@app.post("/auto-label")
+def auto_label(
+    action: str = Query(..., description="動作類別"),
+    device_id: str = Query(..., description="裝置ID"),
+):
+    references = get_reference_waveforms(action)
+    if not references:
+        return {"error": "No reference waveforms found."}
+
+    raw_data_list = get_training_raw_waveforms(action, device_id)
+    if not raw_data_list:
+        return {"error": "No training raw waveforms found."}
+
+    window_size = 20
+    stride = 5
+    THRESHOLDS = {
+    "toss": 950,
+    "drive": 1300,
+    "clear": 1400,
+    "drop": 1200,
+    "smash": 1800
+    }
+    alpha = 0.9
+    threshold_b = THRESHOLDS.get(action, 1200)
+    threshold_c = THRESHOLDS.get(action, 1200)
+    alpha = 0.9
+    accepted_b = 0
+    accepted_c = 0
+
+    for raw in raw_data_list:
+        all_waveform = raw["waveform"]
+        raw_id = str(raw["_id"])
+        idx = 0
+        window_index = 0
+
+        while idx + window_size <= len(all_waveform):
+            window = all_waveform[idx : idx + window_size]
+
+            # === 方法 B: 使用六軸絕對值平均 DTW ===
+            scores_b = []
+            for ref in references:
+                ref_wave = ref["waveform"]
+                score = dtw_abs_six_axis_mean(window, ref_wave)
+                scores_b.append(score)
+
+            min_b = min(scores_b)
+            avg_b = sum(scores_b) / len(scores_b)
+            print(
+                f"Raw ID: {raw_id}, Index: {idx}, Min B: {min_b}, Avg B: {avg_b}"
+            )
+            if threshold_b*alpha < avg_b < threshold_b/alpha:
+                save_training_waveform(action, window,method="magnitude", speed=None)
+                # record_labeled_window(raw_id, window_index)
+                accepted_b += 1
+
+            # === 方法 C: 使用六軸原始值 DTW ===
+            # scores_c = []
+            # for ref in references:
+            #     ref_wave = ref["waveform"]
+            #     score = dtw_raw_six_axis_mean(window, ref_wave)
+            #     scores_c.append(score)
+
+            # min_c = min(scores_c)
+            # avg_c = sum(scores_c) / len(scores_c)
+            # print(
+            #     f"Raw ID: {raw_id}, Index: {idx}, Min C: {min_c}, Avg C: {avg_c}"
+            # )
+            # if threshold_c*alpha < avg_c < threshold_c/alpha:
+            #     save_training_waveform(action, window, device_id, speed=None)
+            #     # record_labeled_window(raw_id, window_index)
+            #     accepted_c += 1
+
+            idx += stride
+            # window_index += 1
+        print(
+            f"Raw ID: {raw_id}, Accepted B: {accepted_b}, Accepted C: {accepted_c}"
+        )
+        # remove_raw_and_labeled_if_complete(raw_id, window_size, stride)
+
+    return {"status": "done", "accepted_B": accepted_b, "accepted_C": accepted_c}
