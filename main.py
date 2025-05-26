@@ -108,7 +108,7 @@ def extract_reference(
             "error": f"No raw data found for action={action} and device_id={device_id}"
         }
 
-    window_size = 20
+    window_size = 30
     stride = 5
     all_windows = []
 
@@ -159,7 +159,7 @@ def extract_training(
             "error": f"No raw data found for action={action} and device_id={device_id}"
         }
 
-    window_size = 20
+    window_size = 30
     stride = 5
     all_windows = []
 
@@ -193,19 +193,17 @@ def auto_label(
     if not raw_data_list:
         return {"error": "No training raw waveforms found."}
 
-    window_size = 20
+    window_size = 30
     stride = 5
-    THRESHOLDS = {
-    "toss": 950,
+    DTWVALUESET = {
+    "toss": 2000,
     "drive": 1300,
     "clear": 1400,
     "drop": 1200,
     "smash": 1800
     }
-    alpha = 0.9
-    threshold_b = THRESHOLDS.get(action, 1200)
-    threshold_c = THRESHOLDS.get(action, 1200)
-    alpha = 0.9
+    THRESHOLD = 0.8  # 調整 DTW 分數的閾值
+    threshold_b = DTWVALUESET.get(action, 1200)
     accepted_b = 0
     accepted_c = 0
 
@@ -213,7 +211,6 @@ def auto_label(
         all_waveform = raw["waveform"]
         raw_id = str(raw["_id"])
         idx = 0
-        window_index = 0
 
         while idx + window_size <= len(all_waveform):
             window = all_waveform[idx : idx + window_size]
@@ -230,7 +227,7 @@ def auto_label(
             print(
                 f"Raw ID: {raw_id}, Index: {idx}, Min B: {min_b}, Avg B: {avg_b}"
             )
-            if threshold_b*alpha < avg_b < threshold_b/alpha:
+            if threshold_b*THRESHOLD < avg_b < threshold_b/THRESHOLD:
                 save_training_waveform(action, window,method="magnitude", speed=None)
                 # record_labeled_window(raw_id, window_index)
                 accepted_b += 1
@@ -247,7 +244,7 @@ def auto_label(
             # print(
             #     f"Raw ID: {raw_id}, Index: {idx}, Min C: {min_c}, Avg C: {avg_c}"
             # )
-            # if threshold_c*alpha < avg_c < threshold_c/alpha:
+            # if threshold_c*THRESHOLD < avg_c < threshold_c/THRESHOLD:
             #     save_training_waveform(action, window, device_id, speed=None)
             #     # record_labeled_window(raw_id, window_index)
             #     accepted_c += 1
