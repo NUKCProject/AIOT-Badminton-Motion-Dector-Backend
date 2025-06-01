@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Query
 from pydantic import BaseModel
 from typing import List, Optional
-from dtw_utils import dtw_abs_six_axis_mean, dtw_raw_six_axis_mean
+from dtw_utils import dtw_abs_six_axis_mean, dtw_abs_six_axis_mean_with_mean_check
 from fastapi.middleware.cors import CORSMiddleware
 from db import (
     save_reference_raw_waveforms,
@@ -179,6 +179,11 @@ def extract_training(
 
 # 自動標記訓練資料
 
+def has_significant_acceleration(waveform, threshold=12.0):
+    for point in waveform:
+        if abs(point["ax"]) > threshold or abs(point["ay"]) > threshold or abs(point["az"]) > threshold:
+            return True
+    return False
 
 @app.post("/auto-label")
 def auto_label(
@@ -197,15 +202,14 @@ def auto_label(
     stride = 5
     DTWVALUESET = {
     "toss": 2000,
-    "drive": 1300,
-    "clear": 1400,
+    "drive": 1500,
+    "clear": 1900,
     "drop": 1200,
-    "smash": 1800
+    "smash": 2400
     }
-    THRESHOLD = 0.8  # 調整 DTW 分數的閾值
+    ALPHA = 0.9  # 調整 DTW 分數的閾值
     threshold_b = DTWVALUESET.get(action, 1200)
     accepted_b = 0
-    accepted_c = 0
 
     for raw in raw_data_list:
         all_waveform = raw["waveform"]
@@ -214,7 +218,9 @@ def auto_label(
 
         while idx + window_size <= len(all_waveform):
             window = all_waveform[idx : idx + window_size]
-
+            if not has_significant_acceleration(window):
+                idx += stride
+                continue
             # === 方法 B: 使用六軸絕對值平均 DTW ===
             scores_b = []
             for ref in references:
@@ -224,36 +230,69 @@ def auto_label(
 
             min_b = min(scores_b)
             avg_b = sum(scores_b) / len(scores_b)
-            print(
-                f"Raw ID: {raw_id}, Index: {idx}, Min B: {min_b}, Avg B: {avg_b}"
-            )
-            if threshold_b*THRESHOLD < avg_b < threshold_b/THRESHOLD:
+
+            # 
+            if threshold_b*ALPHA < avg_b < threshold_b/ALPHA and (min_b / avg_b) > 0.8:
                 save_training_waveform(action, window,method="magnitude", speed=None)
                 # record_labeled_window(raw_id, window_index)
                 accepted_b += 1
-
-            # === 方法 C: 使用六軸原始值 DTW ===
-            # scores_c = []
-            # for ref in references:
-            #     ref_wave = ref["waveform"]
-            #     score = dtw_raw_six_axis_mean(window, ref_wave)
-            #     scores_c.append(score)
-
-            # min_c = min(scores_c)
-            # avg_c = sum(scores_c) / len(scores_c)
-            # print(
-            #     f"Raw ID: {raw_id}, Index: {idx}, Min C: {min_c}, Avg C: {avg_c}"
-            # )
-            # if threshold_c*THRESHOLD < avg_c < threshold_c/THRESHOLD:
-            #     save_training_waveform(action, window, device_id, speed=None)
-            #     # record_labeled_window(raw_id, window_index)
-            #     accepted_c += 1
-
+                print(
+                    f"Raw ID: {raw_id}, Index: {idx}, Min B: {min_b}, Avg B: {avg_b}"
+                )
             idx += stride
             # window_index += 1
         print(
-            f"Raw ID: {raw_id}, Accepted B: {accepted_b}, Accepted C: {accepted_c}"
+            f"Raw ID: {raw_id}, Accepted B: {accepted_b}"
         )
         # remove_raw_and_labeled_if_complete(raw_id, window_size, stride)
 
-    return {"status": "done", "accepted_B": accepted_b, "accepted_C": accepted_c}
+    return {"status": "done", "accepted_B": accepted_b}
+
+
+@app.post("/auto-label-peaks")
+def auto_label_peaks(
+    action: str = Query(..., description="動作類別"),
+    device_id: str = Query(..., description="裝置ID"),
+):
+    window_size = 30
+    half_window = window_size // 2
+    THRESHOLDSET = {
+        "toss": 12,
+        "drive": 10,
+        "clear": 12,
+        "drop": 2.5,
+        "smash": 12
+    }
+    threshold = THRESHOLDSET.get(action, 10)
+    if threshold is None:
+        return {"error": f"No threshold set for action: {action}"}
+    accepted = 0
+
+    raw_data_list = get_training_raw_waveforms(action, device_id)
+    print(f"Raw data list length: {len(raw_data_list)}")
+    if not raw_data_list:
+        return {"error": "No training raw waveforms found."}
+
+    for raw in raw_data_list:
+        waveform = raw["waveform"]
+        raw_id = str(raw["_id"])
+
+        for i in range(len(waveform)):
+            point = waveform[i]
+            if (
+                abs(point["ax"]) > threshold
+                or abs(point["ay"]) > threshold
+                or abs(point["az"]) > threshold
+            ):
+                start = i - half_window
+                end = i + half_window
+
+                if start < 0 or end > len(waveform):
+                    continue
+
+                segment = waveform[start:end]
+                save_training_waveform(action, segment, method="peak", speed=None)
+                accepted += 1
+                print(f"[PEAK] Raw ID: {raw_id}, Center Index: {i}, Saved segment.")
+
+    return {"status": "done", "accepted": accepted}
