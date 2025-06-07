@@ -4,3 +4,6 @@ uvicorn
 pydantic
 pymongo>=4.7
 numpy
+joblib
+tensorflow
+scikit-learn

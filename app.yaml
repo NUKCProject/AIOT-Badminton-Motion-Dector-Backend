@@ -1,10 +1,11 @@
----
-automatic_scaling:
+runtime: python311
+instance_class: B2
+
+entrypoint: uvicorn main:app --host=0.0.0.0 --port=$PORT
+
+basic_scaling:
   max_instances: 2
-  min_instances: 1
-  target_cpu_utilization: 0.65
-entrypoint: uvicorn main:app --host 0.0.0.0 --port $PORT
+  idle_timeout: 10m
+
 env_variables:
   MONGO_URL: mongodb+srv://sheep5168947:K3gELDD3DalG3quO@cluster0.s55hmhg.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
-instance_class: F1
-runtime: python311

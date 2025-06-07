@@ -15,7 +15,12 @@ from db import (
     save_training_waveform,
 )
 from datetime import datetime
-
+import numpy as np
+import pickle
+from keras.models import load_model
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import joblib
 app = FastAPI()
 # --- CORS設定開始 ---
 origins = [
@@ -296,3 +301,37 @@ def auto_label_peaks(
                 print(f"[PEAK] Raw ID: {raw_id}, Center Index: {i}, Saved segment.")
 
     return {"status": "done", "accepted": accepted}
+
+# load model part
+# 載入模型與 LabelEncoder
+model = load_model("badminton_model_5class.h5")
+with open("label_encoder.pkl", "rb") as f:
+    label_encoder = joblib.load(f)
+
+
+class IMUSample(BaseModel):
+    sensor_data: list  # List of 30 dicts, each with ax, ay, az, gx, gy, gz
+
+@app.post("/predict")
+def predict(sample: IMUSample):
+    # print("Received sample data:", sample.sensor_data)
+    if len(sample.sensor_data) != 30:
+        raise HTTPException(status_code=400, detail="需要 30 筆資料")
+
+    # 預處理成 numpy array
+    x = np.array([[[
+        p["ax"], p["ay"], p["az"], p["gx"], p["gy"], p["gz"]
+    ] for p in sample.sensor_data]])
+
+    # 預測
+    probs = model.predict(x)[0]
+    max_idx = np.argmax(probs)
+    max_prob = probs[max_idx]
+
+    if max_prob >= 0.999:
+        label = label_encoder.inverse_transform([max_idx])[0]
+    else:
+        label = "other"
+    print(f"Predicted label: {label}, Confidence: {max_prob}")
+
+    return {"prediction": label, "confidence": float(max_prob)}
