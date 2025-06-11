@@ -1,7 +1,34 @@
 import numpy as np
 from fastdtw import fastdtw
 
+# 
 def dtw_abs_six_axis_mean(input_waveform, reference_waveform):
+    """
+    Calculate the mean of the absolute difference of the DTW distances
+    of the 6 axes (ax, ay, az, gx, gy, gz) between the input waveform
+    and the reference waveform.
+
+    This function takes in two lists of dictionaries, where each dictionary
+    represents a point in the waveform and contains the acceleration and
+    angular velocity values of the point. The function calculates the DTW
+    distance of each axis separately, takes the absolute difference of the
+    distance, and then returns the mean of the absolute differences of all
+    axes.
+
+    Parameters
+    ----------
+    input_waveform : list of dictionaries
+        The input waveform to compare with the reference waveform.
+    reference_waveform : list of dictionaries
+        The reference waveform to compare with the input waveform.
+
+    Returns
+    -------
+    float
+        The mean of the absolute differences of the DTW distances of all
+        axes between the input waveform and the reference waveform.
+    """
+
     keys = ["ax", "ay", "az", "gx", "gy", "gz"]
     total = 0
     for key in keys:
@@ -12,6 +39,34 @@ def dtw_abs_six_axis_mean(input_waveform, reference_waveform):
     return total / len(keys)
 
 def dtw_abs_six_axis_mean_with_mean_check(input_waveform, reference_waveform, max_mean_ratio_diff=0.5):
+    """
+    Calculate the mean of the absolute DTW distances of the 6 axes 
+    (ax, ay, az, gx, gy, gz) between the input and reference waveforms,
+    with a check on the mean ratio difference.
+
+    This function computes the DTW distances for each axis separately 
+    after verifying that the mean ratio difference between the input 
+    and reference waveforms does not exceed a specified threshold. 
+    If the mean ratio difference is too large, the function returns 
+    infinity to indicate dissimilarity.
+
+    Parameters
+    ----------
+    input_waveform : list of dictionaries
+        The input waveform to compare with the reference waveform.
+    reference_waveform : list of dictionaries
+        The reference waveform to compare with the input waveform.
+    max_mean_ratio_diff : float, optional
+        The maximum allowed ratio difference of means between input 
+        and reference waveforms. Default is 0.5.
+
+    Returns
+    -------
+    float
+        The mean of the absolute DTW distances of all axes, or infinity 
+        if the mean ratio difference exceeds the threshold.
+    """
+
     keys = ["ax", "ay", "az", "gx", "gy", "gz"]
     total_dtw = 0
     for key in keys:
@@ -35,6 +90,22 @@ def dtw_abs_six_axis_mean_with_mean_check(input_waveform, reference_waveform, ma
     return total_dtw / len(keys)
 
 def dtw_raw_six_axis_mean(input_waveform, reference_waveform):
+    """
+    Calculate the mean of the absolute DTW distances of the 6 axes 
+    (ax, ay, az, gx, gy, gz) between the input and reference waveforms.
+
+    Parameters
+    ----------
+    input_waveform : list of dictionaries
+        The input waveform to compare with the reference waveform.
+    reference_waveform : list of dictionaries
+        The reference waveform to compare with the input waveform.
+
+    Returns
+    -------
+    float
+        The mean of the absolute DTW distances of all axes.
+    """
     keys = ["ax", "ay", "az", "gx", "gy", "gz"]
     total = 0
     for key in keys:

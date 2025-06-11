@@ -67,12 +67,29 @@ class ReferenceInsertRequest(BaseModel):
 # 設定根路由
 @app.get("/")
 def root():
+    """
+    Basic health check route. Returns a simple JSON response with a "message" key.
+    """
+    
     return {"message": "Hello World"}
 
 
 # 將 raw 資料存入 reference_raw_waveforms
 @app.post("/record-reference-raw-waveforms")
 def record_reference_raw(req: RawDataRequest):
+    """
+    Records raw data as reference data in the database.
+
+    Parameters
+    ----------
+    req : RawDataRequest
+        The request containing the waveform data and optional action and device_id.
+
+    Returns
+    -------
+    dict
+        A JSON response with a status key set to "ok".
+    """
     save_reference_raw_waveforms(
         [p.dict() for p in req.waveform], req.action, req.device_id
     )
@@ -82,6 +99,19 @@ def record_reference_raw(req: RawDataRequest):
 # 將 raw 資料存入 training_raw_waveforms
 @app.post("/record-training-raw-waveforms")
 def record_training_raw(req: RawDataRequest):
+    """
+    Records raw data as training data in the database.
+
+    Parameters
+    ----------
+    req : RawDataRequest
+        The request containing the waveform data and optional action and device_id.
+
+    Returns
+    -------
+    dict
+        A JSON response with a status key set to "ok".
+    """
     save_training_raw_waveforms(
         [p.dict() for p in req.waveform], req.action, req.device_id
     )
@@ -91,6 +121,19 @@ def record_training_raw(req: RawDataRequest):
 # 插入人工挑選的 reference 小段
 @app.post("/insert-reference")
 def insert_reference(req: ReferenceInsertRequest):
+    """
+    Inserts a manually selected reference waveform into the database.
+
+    Parameters
+    ----------
+    req : ReferenceInsertRequest
+        The request containing the waveform data, action, device_id, raw_id, and window_index.
+
+    Returns
+    -------
+    dict
+        A JSON response with a status key set to "reference saved".
+    """
     waveform_dicts = [p.dict() for p in req.waveform]
     print("waveform_dicts", waveform_dicts)
     print("req", req)
@@ -106,6 +149,26 @@ def extract_reference(
     action: str = Query(..., description="指定動作類別，例如 smash、drive"),
     device_id: str = Query(..., description="指定裝置ID，例如 test-device"),
 ):
+    """
+    Extracts reference raw waveforms from the database, cuts them into windows of size 30,
+    and returns them as a JSON response.
+
+    Parameters
+    ----------
+    action : str
+        The action to extract reference raw waveforms for.
+    device_id : str
+        The device ID to extract reference raw waveforms for.
+
+    Returns
+    -------
+    dict
+        A JSON response with keys "action", "device_id", and "windows". The "windows" key
+        contains a list of dictionaries, each with keys "index", "waveform", and "raw_id". The
+        "index" key is the index of the window in the list, the "waveform" key is the window
+        itself, and the "raw_id" key is the ID of the raw data that the window was extracted
+        from.
+    """
     raw_data_list = get_reference_raw_waveforms(action, device_id)
 
     if not raw_data_list:
@@ -136,6 +199,21 @@ def extract_reference(
 def get_reference_waveforms(
     action: str = Query(..., description="動作類別"),
 ):
+    """
+    Fetches filtered reference waveforms from the database for a specified action.
+
+    Parameters
+    ----------
+    action : str
+        The action category for which to retrieve reference waveforms.
+
+    Returns
+    -------
+    list
+        A list of dictionaries representing the filtered reference waveforms. Each dictionary
+        includes waveform data and has its "_id" field converted to a string.
+    """
+
     results = get_filtered_reference_waveforms(action)
     for r in results:
         r["_id"] = str(r["_id"])  # 轉為字串
@@ -146,6 +224,21 @@ def get_reference_waveforms(
 def get_training_waveforms(
     action: str = Query(..., description="動作類別"),
 ):
+    """
+    Fetches filtered training waveforms from the database for a specified action.
+
+    Parameters
+    ----------
+    action : str
+        The action category for which to retrieve training waveforms.
+
+    Returns
+    -------
+    list
+        A list of dictionaries representing the filtered training waveforms. Each dictionary
+        includes waveform data and has its "_id" field converted to a string.
+    """
+
     results = get_filtered_training_waveforms(action)
     for r in results:
         r["_id"] = str(r["_id"])  # 轉為字串
@@ -157,6 +250,26 @@ def extract_training(
     action: str = Query(..., description="動作類別"),
     device_id: str = Query(..., description="裝置ID"),
 ):
+    """
+    Extracts training raw waveforms from the database, cuts them into windows of size 30,
+    and returns them as a JSON response.
+
+    Parameters
+    ----------
+    action : str
+        The action category to extract training raw waveforms for.
+    device_id : str
+        The device ID to extract training raw waveforms for.
+
+    Returns
+    -------
+    dict
+        A JSON response with keys "action", "device_id", and "windows". The "windows" key
+        contains a list of dictionaries, each with keys "index", "waveform", and "raw_id". The
+        "index" key is the index of the window in the list, the "waveform" key is the window
+        itself, and the "raw_id" key is the ID of the raw data that the window was extracted
+        from.
+    """
     raw_data_list = get_training_raw_waveforms(action, device_id)
 
     if not raw_data_list:
@@ -185,6 +298,24 @@ def extract_training(
 # 自動標記訓練資料
 
 def has_significant_acceleration(waveform, threshold=12.0):
+    """
+    Checks if a waveform contains at least one point with significant acceleration.
+
+    Parameters
+    ----------
+    waveform : list of dictionaries
+        The waveform to check. Each dictionary should contain the keys "ax", "ay", and "az"
+        with the acceleration values of the point.
+    threshold : float, optional
+        The acceleration threshold. If the absolute value of any of the acceleration values
+        is greater than this threshold, the function returns True. Default is 12.0.
+
+    Returns
+    -------
+    bool
+        True if the waveform contains at least one point with significant acceleration, False
+        otherwise.
+    """
     for point in waveform:
         if abs(point["ax"]) > threshold or abs(point["ay"]) > threshold or abs(point["az"]) > threshold:
             return True
@@ -195,6 +326,33 @@ def auto_label(
     action: str = Query(..., description="動作類別"),
     device_id: str = Query(..., description="裝置ID"),
 ):
+    """
+    Automatically labels training data by comparing it with reference waveforms 
+    using Dynamic Time Warping (DTW) and saves the segments that meet certain criteria.
+
+    This function processes raw training waveform data, divides it into windows, 
+    and calculates the DTW score against reference waveforms. If the score satisfies 
+    a predefined threshold, it labels the window and saves it into the database.
+
+    Parameters
+    ----------
+    action : str
+        The action category for which to perform auto-labeling.
+    device_id : str
+        The device ID associated with the training waveforms.
+
+    Returns
+    -------
+    dict
+        A JSON response with a status key set to "done" and the number of 
+        accepted windows labeled as "accepted_B".
+
+    Notes
+    -----
+    The function uses a threshold mechanism based on predefined DTW values 
+    for different actions and an alpha parameter to adjust sensitivity.
+    """
+
     references = get_reference_waveforms(action)
     if not references:
         return {"error": "No reference waveforms found."}
@@ -259,6 +417,24 @@ def auto_label_peaks(
     action: str = Query(..., description="動作類別"),
     device_id: str = Query(..., description="裝置ID"),
 ):
+    """
+    Auto-labels training raw waveforms by finding peaks in the waveform.
+
+    Parameters
+    ----------
+    action : str
+        The action category to auto-label training raw waveforms for.
+    device_id : str
+        The device ID to auto-label training raw waveforms for.
+
+    Returns
+    -------
+    dict
+        A JSON response with keys "status" and "accepted". The "status" key is set to
+        "done" if the auto-labeling is successful, and the "accepted" key is the number of
+        segments that were auto-labeled.
+    """
+    
     window_size = 30
     half_window = window_size // 2
     THRESHOLDSET = {
@@ -315,6 +491,33 @@ class IMUSample(BaseModel):
 @app.post("/predict")
 def predict(sample: IMUSample):
     # print("Received sample data:", sample.sensor_data)
+    """
+    Predicts the label of IMU sensor data using a pre-trained model.
+
+    This function receives a sample of IMU sensor data, processes it, and predicts
+    the label using a pre-trained neural network model. The function expects exactly
+    30 data points in the sample, each containing acceleration and gyro data.
+
+    Parameters
+    ----------
+    sample : IMUSample
+        An object containing a list of 30 dictionaries, each with keys "ax", "ay",
+        "az", "gx", "gy", and "gz" representing acceleration and gyro data.
+
+    Returns
+    -------
+    dict
+        A JSON response containing the predicted label and the confidence level
+        of the prediction. The label is returned as "other" if the confidence is 
+        below 0.999.
+
+    Raises
+    ------
+    HTTPException
+        If the number of data points in the sample is not 30, an HTTPException
+        is raised with a 400 status code.
+    """
+
     if len(sample.sensor_data) != 30:
         raise HTTPException(status_code=400, detail="需要 30 筆資料")
 

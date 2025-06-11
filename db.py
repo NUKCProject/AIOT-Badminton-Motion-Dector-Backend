@@ -2,7 +2,7 @@ import os
 from datetime import datetime
 from pymongo import MongoClient
 from bson import ObjectId
-
+# 環境變數設定
 MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017/")
 # MONGO_URL = "mongodb+srv://sheep5168947:K3gELDD3DalG3quO@cluster0.s55hmhg.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 client = MongoClient(MONGO_URL)
